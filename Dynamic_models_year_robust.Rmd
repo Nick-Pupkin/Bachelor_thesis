@@ -1,0 +1,375 @@
+---
+title: "Dynamic models, year robust"
+output:
+  html_document:
+    df_print: paged
+---
+Links to sources:
+
+https://cran.r-project.org/web/packages/pdynmc/vignettes/pdynmc-introLong.pdf
+
+https://cran.r-project.org/web/packages/pdynmc/pdynmc.pdf
+
+The folowing research is conducted by Maria R. Koldasheva and Nikolai A. Popov.
+
+## Libraries
+```{r Libraries, message=FALSE, warning=FALSE}
+library(dplyr) 
+library(psych)
+library(readxl)
+library(writexl)
+library(kableExtra)
+
+# Econometrics
+library(tidyverse)
+library(plm) # panel models
+library(sandwich) #covariance matrixes
+library(lmtest) # tests
+library(xtable)# latex tables
+library(stargazer) # latex regression tables
+library(ggpubr) # correlation test
+
+
+# Dynamic models
+library(pdynmc)
+
+# To fix RPubs
+# install.packages('rsconnect')
+library(rsconnect)
+```
+
+## Downloading the data
+```{r Data dowloading}
+# Downloading
+long_data <- read_csv('C:/Users/Kolya/Documents/New_studies/Diploma/Data/Data_use/Long_united_data.csv',
+                      show_col_types = FALSE)
+
+long_data
+```
+
+# Dataset for 2015-2019
+We exclude 2014 and 2020 as crisis years, to check whether our results are robust.
+```{r Dataset for 2015-2019}
+
+long_data <- subset(long_data, year %in% c(2015:2019))
+```
+
+
+## Model construction
+
+Specifications, Panel models
+
+Theil index specification
+
+Theil <- log(GRP) ~ lag(log(GRP)) + lag(Div) + Edu + Pop + lag(Inv) + lag(FDI) + log(Imp)
+
+EM and IM specification
+
+Margins <- log(GRP) ~ lag(log(GRP)) + lag(EM) + lag(IM) + Edu + Pop + lag(Inv) +lag(FDI)
+
+### Manually making logarithms for "pdynmc"
+```{r Manually making logarithms for "pdynmc", message=FALSE, warning=FALSE, results='hide'}
+# new dataset
+long_data_log = data.frame(long_data)
+
+# Check if memory addresses are the same
+tracemem(long_data_log) == tracemem(long_data)
+# FALSE expected
+
+# logarithm of appropriate columns
+long_data_log$GRP=log(long_data_log$GRP)
+long_data_log$Imp=log(long_data_log$Imp)
+long_data_log$GRPL=log(long_data_log$GRPL)
+colnames(long_data_log)
+```
+
+### Model setting
+
+Estimation: system GMM
+
+#### Theil
+
+Theil <- log(GRP) ~ lag(log(GRP)) + lag(Div) + Edu + Pop + lag(Inv) + lag(FDI) + log(Imp)
+
+```{r Model setting, Theil}
+
+# Theil
+Theil_d <- pdynmc(dat = long_data_log, varname.i = "region", varname.t = "year",
+use.mc.diff = TRUE, use.mc.lev = FALSE, use.mc.nonlin = FALSE, inst.stata = TRUE,
+include.y = TRUE, varname.y = "GRP", lagTerms.y = 1,
+fur.con = TRUE, fur.con.diff = TRUE, fur.con.lev = FALSE,
+varname.reg.fur = c("DivL", "Edu", "Pop", "InvL", "FDIL", "Imp"),
+lagTerms.reg.fur = c(0,0,0,0,0,0),
+include.dum = TRUE, dum.diff = TRUE, dum.lev = FALSE, varname.dum = "year",
+w.mat.stata = TRUE, std.err = "dbl.corrected", # Hwang et al. (2021)
+estimation = "onestep", opt.meth = "none")
+# w.mat = "zero.cov", 
+
+Theil_d_sum <- summary(Theil_d)
+Theil_d_sum
+```
+
+J-Test: null hypothesis is not rejected - > our set of IVs is good.
+F-Statistic (slope coeff): null hypothesis is not rejected - > our betas are jointly zero (bad model)
+F-Statistic (time dummies): null hypothesis is rejected - > our betas are not jointly zero (good dummies model)
+
+#### Margins
+
+Margins <- log(GRP) ~ lag(log(GRP)) + lag(EM) + lag(IM) + Edu + Pop + lag(Inv) +lag(FDI)
+```{r Model setting, Margins}
+
+# Margins
+Margins_d <- pdynmc(dat = long_data_log, varname.i = "region", varname.t = "year",
+use.mc.diff = TRUE, use.mc.lev = FALSE, use.mc.nonlin = FALSE, inst.stata = TRUE,
+include.y = TRUE, varname.y = "GRP", lagTerms.y = 1,
+fur.con = TRUE, fur.con.diff = TRUE, fur.con.lev = FALSE,
+varname.reg.fur = c("EML", "IML", "Edu", "Pop", "InvL", "FDIL"),
+lagTerms.reg.fur = c(0,0,0,0,0,0),
+include.dum = TRUE, dum.diff = TRUE, dum.lev = FALSE, varname.dum = "year",
+w.mat.stata = TRUE, std.err = "dbl.corrected", # Hwang et al. (2021)
+estimation = "onestep", opt.meth = "none")
+# w.mat = "zero.cov",
+
+Margins_d_sum <- summary(Margins_d)
+Margins_d_sum
+```
+
+J-Test: null hypothesis is not rejected - > our set of IVs is good.
+F-Statistic (slope coeff): null hypothesis is not rejected - > our betas are jointly zero (bad model)
+F-Statistic (time dummies): null hypothesis is rejected - > our betas are not jointly zero (good dummies model)
+# United table creating
+
+```{r DataFrames for tables}
+# Table for Theil
+united_table_dynamic_panels_Theil <-
+cbind(Theil_d_sum$coefficients[c(1:(nrow(Theil_d_sum$coefficients)-3)), c(1, 2, 4)])
+
+# Table for Margins
+united_table_dynamic_panels_Margins <- 
+cbind(Margins_d_sum$coefficients[c(1:(nrow(Margins_d_sum$coefficients)-3)), c(1, 2, 4)])
+
+# matrixes into dataframe
+united_table_dynamic_panels_Theil <- as.data.frame(united_table_dynamic_panels_Theil)
+
+united_table_dynamic_panels_Margins <- as.data.frame(united_table_dynamic_panels_Margins)
+
+# renaming
+names(united_table_dynamic_panels_Theil) <- c('Est_Theil', 'SE_Theil', 'Pvalue_Theil')
+
+names(united_table_dynamic_panels_Margins) <- c('Est_Margins', 'SE_Margins', 'Pvalue_Margins')
+
+united_table_dynamic_panels_Theil
+united_table_dynamic_panels_Margins
+```
+
+## Table
+```{r Table}
+library(modelsummary)
+ti_Theil <- data.frame(
+  term = c('L1.GRP', 'L1.Div', 'L0.Edu', 'L0.Pop', 'L1.Inv', 'L1.FDI', 'L0.Imp'),
+  estimate = united_table_dynamic_panels_Theil$Est_Theil,
+  std.error = united_table_dynamic_panels_Theil$SE_Theil,
+  p.value = united_table_dynamic_panels_Theil$Pvalue_Theil)
+
+ti_Margins <- data.frame(
+  term = c('L1.GRP', 'L1.IM', 'L1.EM', 'L0.Edu', 'L0.Pop', 'L1.Inv', 'L1.FDI'),
+  estimate = united_table_dynamic_panels_Margins$Est_Margins,
+  std.error = united_table_dynamic_panels_Margins$SE_Margins,
+  p.value = united_table_dynamic_panels_Margins$Pvalue_Margins)
+
+gl <- data.frame(
+  Observations = "546",
+  Model = "System GMM")
+
+mod_Theil <- list(tidy = ti_Theil, glance = gl)
+mod_Margins <- list(tidy = ti_Margins, glance = gl)
+
+# Model class
+class(mod_Theil) <- "modelsummary_list"
+class(mod_Margins) <- "modelsummary_list"
+
+
+# created named list
+models <- list()
+models[['log(GRP) (1)']] <- mod_Theil
+models[['log(GRP) (2)']] <- mod_Margins
+
+# Model
+modelsummary(models, stars = T, title = 'Dynamic model', fmt = 4, coef_map = c('L1.GRP', 'L1.Div',
+                                                                               'L1.EM', 'L1.IM',
+                                                                               'L0.Edu', 'L0.Pop',
+                                                                               'L1.Inv','L1.FDI',
+                                                                               'L0.Imp'))
+
+#output = 'latex'
+# modelsummary(mod)
+```
+# SAME CODE, BUT FOR ROBUST DATASET (NO MSK, SPB)
+
+## Downloading the data, robust
+```{r Data dowloading, robust}
+# Downloading
+long_data_robust <- read_csv(
+  'C:/Users/Kolya/Documents/New_studies/Diploma/Data/Data_use/Long_united_data_robust.csv',
+  show_col_types = FALSE)
+
+long_data_robust
+```
+# Dataset for 2015-2019, robust
+We exclude 2014 and 2020 as crisis years, to check whether our results are robust.
+```{r Dataset for 2015-2019, robust}
+
+long_data_robust <- subset(long_data_robust, year %in% c(2015:2019))
+```
+## Model construction, robust
+
+### Manually making logarithms for "pdynmc", robust
+```{r Manually making logarithms for "pdynmc",robust, message=FALSE, warning=FALSE, results='hide'}
+# new dataset
+long_data_robust_log = data.frame(long_data_robust)
+
+# Check if memory addresses are the same
+tracemem(long_data_robust_log) == tracemem(long_data_robust)
+# FALSE expected
+
+# logarithm of appropriate columns
+long_data_robust_log$GRP=log(long_data_robust_log$GRP)
+long_data_robust_log$Imp=log(long_data_robust_log$Imp)
+long_data_robust_log$GRPL=log(long_data_robust_log$GRPL)
+colnames(long_data_robust_log)
+```
+
+### Model setting, robust
+#### Theil_robust, robust
+
+Theil_robust <- log(GRP) ~ lag(log(GRP)) + lag(Div) + Edu + Pop + lag(Inv) + lag(FDI) + log(Imp)
+
+```{r Model setting, Theil_robust}
+
+# Theil_robust
+Theil_robust_d <- pdynmc(dat = long_data_robust_log, varname.i = "region", varname.t = "year",
+use.mc.diff = TRUE, use.mc.lev = FALSE, use.mc.nonlin = FALSE, inst.stata = TRUE,
+include.y = TRUE, varname.y = "GRP", lagTerms.y = 1,
+fur.con = TRUE, fur.con.diff = TRUE, fur.con.lev = FALSE,
+varname.reg.fur = c("DivL", "Edu", "Pop", "InvL", "FDIL", "Imp"),
+lagTerms.reg.fur = c(0,0,0,0,0,0),
+include.dum = TRUE, dum.diff = TRUE, dum.lev = FALSE, varname.dum = "year",
+w.mat.stata = TRUE, std.err = "dbl.corrected", # Hwang et al. (2021)
+estimation = "onestep", opt.meth = "none")
+# w.mat = "zero.cov", 
+
+Theil_robust_d_sum <- summary(Theil_robust_d)
+Theil_robust_d_sum
+```
+
+J-Test: null hypothesis is not rejected - > our set of IVs is good.
+F-Statistic (slope coeff): null hypothesis is not rejected - > our betas are jointly zero (bad model)
+F-Statistic (time dummies): null hypothesis is rejected - > our betas are not jointly zero (good dummies model)
+
+#### Margins_robust
+
+Margins_robust <- log(GRP) ~ lag(log(GRP)) + lag(EM) + lag(IM) + Edu + Pop + lag(Inv) +lag(FDI)
+```{r Model setting, Margins_robust}
+
+# Margins_robust
+Margins_robust_d <- pdynmc(dat = long_data_robust_log, varname.i = "region", varname.t = "year",
+use.mc.diff = TRUE, use.mc.lev = FALSE, use.mc.nonlin = FALSE, inst.stata = TRUE,
+include.y = TRUE, varname.y = "GRP", lagTerms.y = 1,
+fur.con = TRUE, fur.con.diff = TRUE, fur.con.lev = FALSE,
+varname.reg.fur = c("EML", "IML", "Edu", "Pop", "InvL", "FDIL"),
+lagTerms.reg.fur = c(0,0,0,0,0,0),
+include.dum = TRUE, dum.diff = TRUE, dum.lev = FALSE, varname.dum = "year",
+w.mat.stata = TRUE, std.err = "dbl.corrected", # Hwang et al. (2021)
+estimation = "onestep", opt.meth = "none")
+# w.mat = "zero.cov",
+
+Margins_robust_d_sum <- summary(Margins_robust_d)
+Margins_robust_d_sum
+```
+
+J-Test: null hypothesis is not rejected - > our set of IVs is good.
+F-Statistic (slope coeff): null hypothesis is not rejected - > our betas are jointly zero (bad model)
+F-Statistic (time dummies): null hypothesis is rejected - > our betas are not jointly zero (good dummies model)
+# United table creating, robust
+
+```{r DataFrames for tables, robust}
+# Table for Theil_robust
+united_table_dynamic_panels_Theil_robust <-
+cbind(Theil_robust_d_sum$coefficients[c(1:(nrow(Theil_robust_d_sum$coefficients)-3)), c(1, 2, 4)])
+
+# Table for Margins_robust
+united_table_dynamic_panels_Margins_robust <- 
+cbind(Margins_robust_d_sum$coefficients[c(1:(nrow(Margins_robust_d_sum$coefficients)-3)), c(1, 2, 4)])
+
+# matrixes into dataframe
+united_table_dynamic_panels_Theil_robust <- as.data.frame(united_table_dynamic_panels_Theil_robust)
+
+united_table_dynamic_panels_Margins_robust <- as.data.frame(united_table_dynamic_panels_Margins_robust)
+
+# renaming
+names(united_table_dynamic_panels_Theil_robust) <- c('Est_Theil_robust', 'SE_Theil_robust', 'Pvalue_Theil_robust')
+
+names(united_table_dynamic_panels_Margins_robust) <- c('Est_Margins_robust', 'SE_Margins_robust', 'Pvalue_Margins_robust')
+
+united_table_dynamic_panels_Theil_robust
+united_table_dynamic_panels_Margins_robust
+```
+
+## Table, robust
+```{r Table, robust}
+library(modelsummary)
+ti_Theil_robust <- data.frame(
+  term = c('L1.GRP', 'L1.Div', 'L0.Edu', 'L0.Pop', 'L1.Inv', 'L1.FDI', 'L0.Imp'),
+  estimate = united_table_dynamic_panels_Theil_robust$Est_Theil_robust,
+  std.error = united_table_dynamic_panels_Theil_robust$SE_Theil_robust,
+  p.value = united_table_dynamic_panels_Theil_robust$Pvalue_Theil_robust)
+
+ti_Margins_robust <- data.frame(
+  term = c('L1.GRP', 'L1.IM', 'L1.EM', 'L0.Edu', 'L0.Pop', 'L1.Inv', 'L1.FDI'),
+  estimate = united_table_dynamic_panels_Margins_robust$Est_Margins_robust,
+  std.error = united_table_dynamic_panels_Margins_robust$SE_Margins_robust,
+  p.value = united_table_dynamic_panels_Margins_robust$Pvalue_Margins_robust)
+
+gl <- data.frame(
+  Observations = "532",
+  Model = "System GMM")
+
+mod_Theil_robust <- list(tidy = ti_Theil_robust, glance = gl)
+mod_Margins_robust <- list(tidy = ti_Margins_robust, glance = gl)
+
+# Model class
+class(mod_Theil_robust) <- "modelsummary_list"
+class(mod_Margins_robust) <- "modelsummary_list"
+
+
+# created named list
+models <- list()
+models[['log(GRP) (1)']] <- mod_Theil_robust
+models[['log(GRP) (2)']] <- mod_Margins_robust
+
+# Model
+modelsummary(models, stars = T, title = 'Dynamic model', fmt = 4, coef_map = c('L1.GRP', 'L1.Div',
+                                                                               'L1.EM', 'L1.IM',
+                                                                               'L0.Edu', 'L0.Pop',
+                                                                               'L1.Inv','L1.FDI',
+                                                                               'L0.Imp'))
+
+#output = 'latex'
+# modelsummary(mod)
+```
+# Final table
+
+```{r Final table}
+# created named list
+models <- list()
+models[['log(GRP) (1)']] <- mod_Theil
+models[['log(GRP) (2)']] <- mod_Theil_robust
+models[['log(GRP) (3)']] <- mod_Margins
+models[['log(GRP) (4)']] <- mod_Margins_robust
+# Model
+modelsummary(models, stars = T, title = 'Dynamic models, robust (no crisis years)',
+             fmt = 4, coef_map = c('L1.GRP', 'L1.Div','L1.EM', 'L1.IM','L0.Edu', 
+                                   'L0.Pop', 'L1.Inv','L1.FDI','L0.Imp'))
+```
+
+Coefficients are different, still, no significance.
